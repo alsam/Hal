@@ -19,14 +19,11 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 
-use heliocron::{calc, config, errors, structs, enums, subcommands};
-use chrono::{DateTime, Duration, FixedOffset, Local, TimeZone};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Result};
-use std::error::Error;
+use heliocron::{calc, structs, enums};
+use chrono::{FixedOffset, Local, TimeZone};
+use serde_json::json;
 use std::fs::OpenOptions;
-use std::io::{self, Write};
-use std::process::Command;
+use std::io::{self};
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -71,68 +68,6 @@ struct Opt {
     longitude: f64,
 }
 
-/*
-fn invoke_heliocron_report(
-    date: &str,
-    timezone: &str,
-    latitude: &str,
-    longitude: &str,
-    verbose: bool,
-) -> (String, String) {
-    let mut sunrise_sunset = ("".to_string(), "".to_string());
-    let report = Command::new("heliocron")
-        .arg("--date")
-        .arg(&date)
-        .arg("--latitude")
-        .arg(&latitude)
-        .arg("--longitude")
-        .arg(&longitude)
-        .arg("--time-zone")
-        .arg(&timezone)
-        .arg("report")
-        .output()
-        .expect("failed to execute process");
-
-    if verbose {
-        println!(
-            "heliocron {} {} {} {} {} {} {} {} {}",
-            "--date",
-            &date,
-            "--latitude",
-            &latitude,
-            "--longitude",
-            &longitude,
-            "--time-zone",
-            &timezone,
-            "report"
-        );
-    }
-
-    if report.status.success() {
-        let to_parse = String::from_utf8_lossy(&report.stdout);
-        let lines = to_parse.lines();
-        for line in lines {
-            let extract_time = |s: &str| {
-                let vec = s.split_whitespace().collect::<Vec<&str>>();
-                // Sunrise is at:            2022-01-22 10:51:47 +03:00
-                // 0       1  2              3          4
-                let time = String::from(vec[4]);
-                time
-            };
-            if line.starts_with("Sunrise is at:") {
-                sunrise_sunset.0 = extract_time(&line);
-            }
-            if line.starts_with("Sunset is at:") {
-                sunrise_sunset.1 = extract_time(&line);
-            }
-        }
-    } else {
-        io::stderr().write_all(&report.stderr).unwrap();
-    }
-    sunrise_sunset
-}
-*/
-
 fn main() -> io::Result<()> {
     let opt = Opt::from_args();
     if opt.verbose > 2 {
@@ -140,20 +75,16 @@ fn main() -> io::Result<()> {
         println!("time_offset {}", opt.time_offset);
     }
 
-    let (date, longitude, latitude, timezone): (String, String, String, String);
-
-    let config = config::Config {
-        coordinates: structs::Coordinates {
-            latitude: structs::Latitude { value: opt.latitude },
-            longitude: structs::Longitude { value: opt.longitude },
-        },
-        date: Local::today()
-        .and_hms(12, 0, 0)
-        .with_timezone(&FixedOffset::from_offset(Local::today().offset())),
-        action: config::Action::Report,
+    let coords = structs::Coordinates {
+        latitude: structs::Latitude { value: opt.latitude },
+        longitude: structs::Longitude { value: opt.longitude },
     };
 
-    let solar_calculations = calc::SolarCalculations::new(config.date, config.coordinates);
+    let date = Local::today()
+        .and_hms(12, 0, 0)
+        .with_timezone(&FixedOffset::from_offset(Local::today().offset()));
+
+    let solar_calculations = calc::SolarCalculations::new(date, coords);
     let calc = |op: &str|
     {
         solar_calculations.calculate_event_time(enums::Event::new(op, None).unwrap())
@@ -163,12 +94,8 @@ fn main() -> io::Result<()> {
 
     let just_time = |ev: &structs::EventTime| { ev.datetime.unwrap().time() };
 
-    if opt.verbose > 0 {
-        println!("sunrise: {} sunset: {}", just_time(&sunrise), just_time(&sunset));
-    }
-
     let sunrise_sunset_json = json!({ "day_start" : format!("{}", just_time(&sunrise)),
-                                            "day_end" : format!("{}", just_time(&sunset)) });
+                                      "day_end"   : format!("{}", just_time(&sunset)) });
 
     match opt.out {
         None => println!("{:}", sunrise_sunset_json.to_string()),
@@ -183,41 +110,4 @@ fn main() -> io::Result<()> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_nyc_sunrise_sunset() {
-        // NYC 40.7128° N, 74.0060° W
-        /*
-        let (sunrise, sunset) = invoke_heliocron_report(
-            "2022-01-24",
-            "-05:00",   // TZ offset of NYC: GMT-5
-            "40.7128N", // latitude of NYC
-            "74.0060W", // longitude of NYC
-            false,
-        ); // be silent
-        assert_eq!(sunrise, "07:12:36");
-        assert_eq!(sunset, "17:03:42");
-        */
-    }
-
-    #[test]
-    fn test_ok_sunrise_sunset() {
-        // Oakland, CA 37.8044° N, 122.2712° W
-        /*
-        let (sunrise, sunset) = invoke_heliocron_report(
-            "2022-01-25",
-            "-08:00",    // TZ offset of Oakland, CA: GMT-8
-            "37.8044N",  // latitude of Oakland, CA
-            "122.2712W", // longitude of Oakland, CA
-            false,
-        ); // be silent
-        assert_eq!(sunrise, "07:18:10");
-        assert_eq!(sunset, "17:24:46");
-        */
-    }
 }
