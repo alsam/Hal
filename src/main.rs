@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 
 use heliocron::{calc, structs, enums};
-use chrono::{FixedOffset, Local, TimeZone};
+use chrono::{FixedOffset, Local, TimeZone, Duration};
 use serde_json::json;
 use std::fs::OpenOptions;
 use std::io::{self};
@@ -47,7 +47,7 @@ struct Opt {
         help = "Time offset in minutes",
         default_value = "0"
     )]
-    time_offset: usize,
+    time_offset: i64,
 
     #[structopt(
         short = "l",
@@ -92,10 +92,17 @@ fn main() -> io::Result<()> {
     let sunrise = calc("sunrise");
     let sunset = calc("sunset");
 
-    let just_time = |ev: &structs::EventTime| { ev.datetime.unwrap().time() };
+    let just_time = |ev: &structs::EventTime, offset: &Duration, offset_sign: bool|
+    {
+        let dt = ev.datetime.unwrap();
+        let time = if offset_sign { dt.checked_add_signed(*offset) }
+                   else           { dt.checked_sub_signed(*offset) };
+        time.unwrap().time()
+    };
 
-    let sunrise_sunset_json = json!({ "day_start" : format!("{}", just_time(&sunrise)),
-                                      "day_end"   : format!("{}", just_time(&sunset)) });
+    let offset_in_minutes = Duration::minutes(opt.time_offset);
+    let sunrise_sunset_json = json!({ "day_start" : format!("{}", just_time(&sunrise, &offset_in_minutes, true)),
+                                      "day_end"   : format!("{}", just_time(&sunset, &offset_in_minutes, false)) });
 
     match opt.out {
         None => println!("{:}", sunrise_sunset_json.to_string()),
