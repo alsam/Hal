@@ -8,6 +8,7 @@ structopt = "*"
 serde = "*"
 serde_json = "*"
 heliocron = "*"
+chrono = "*"
 
 [package.metadata.deb]
 maintainer = "Alexander Samoilov <alexander.samoilov@gmail.com>"

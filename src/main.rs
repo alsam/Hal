@@ -19,14 +19,15 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 
-use structopt::StructOpt;
-use std::process::Command;
-use std::io::{self, Write};
+use heliocron::{calc, config, errors, structs, enums, subcommands};
+use chrono::{DateTime, Duration, FixedOffset, Local, TimeZone};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Result};
-use std::fs::OpenOptions;
 use std::error::Error;
-use heliocron::{calc, config, errors, subcommands};
+use std::fs::OpenOptions;
+use std::io::{self, Write};
+use std::process::Command;
+use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "hal")]
@@ -36,54 +37,75 @@ struct Opt {
     #[structopt(short, long, parse(from_occurrences))]
     verbose: u8,
 
-    #[structopt(short = "u", long = "out", help = "Set the output file name, e.g. /tmp/sunruse_sunset.json, if not set, output to stdout")]
+    #[structopt(
+        short = "u",
+        long = "out",
+        help = "Set the output file name, e.g. /tmp/sunrise_sunset.json, if not set, output to stdout"
+    )]
     out: Option<String>,
 
-    #[structopt(short = "d", long = "date")]
-    date: Option<String>,
+    #[structopt(
+        short = "s",
+        long = "time-offset",
+        help = "Time offset in minutes",
+        default_value = "0"
+    )]
+    time_offset: usize,
 
-    #[structopt(short = "f", long = "date-format", default_value = "%Y-%m-%d")]
-    date_format: String,
-
-    #[structopt(short = "t", long = "time-zone", allow_hyphen_values = true)]
-    time_zone: Option<String>,
     #[structopt(
         short = "l",
         long = "latitude",
-        help = "Set the latitude in decimal degrees. Can also be set in ~/.config/heliocron.toml.",
-        requires = "longitude"
+        help = "Set the latitude in decimal degrees.",
+        requires = "longitude",
+        default_value = "40.7128"
     )]
-    latitude: Option<String>,
+    latitude: f64,
 
     #[structopt(
         short = "o",
         long = "longitude",
-        help = "Set the longitude in decimal degrees. Can also be set in ~/.config/heliocron.toml.",
-        requires = "latitude"
+        help = "Set the longitude in decimal degrees.",
+        requires = "latitude",
+        default_value = "-74.0060"
     )]
-    longitude: Option<String>,
+    longitude: f64,
 }
 
-fn invoke_heliocron_report(date: &str,
-                           timezone: &str,
-                           latitude: &str,
-                           longitude: &str,
-                           verbose: bool) -> (String, String)
-{
+/*
+fn invoke_heliocron_report(
+    date: &str,
+    timezone: &str,
+    latitude: &str,
+    longitude: &str,
+    verbose: bool,
+) -> (String, String) {
     let mut sunrise_sunset = ("".to_string(), "".to_string());
     let report = Command::new("heliocron")
-                         .arg("--date")      .arg(&date)
-                         .arg("--latitude")  .arg(&latitude)
-                         .arg("--longitude") .arg(&longitude)
-                         .arg("--time-zone") .arg(&timezone)
-                         .arg("report")
-                         .output()
-                         .expect("failed to execute process");
+        .arg("--date")
+        .arg(&date)
+        .arg("--latitude")
+        .arg(&latitude)
+        .arg("--longitude")
+        .arg(&longitude)
+        .arg("--time-zone")
+        .arg(&timezone)
+        .arg("report")
+        .output()
+        .expect("failed to execute process");
 
     if verbose {
-        println!("heliocron {} {} {} {} {} {} {} {} {}",
-                 "--date", &date, "--latitude", &latitude, "--longitude", &longitude,
-                 "--time-zone", &timezone, "report");
+        println!(
+            "heliocron {} {} {} {} {} {} {} {} {}",
+            "--date",
+            &date,
+            "--latitude",
+            &latitude,
+            "--longitude",
+            &longitude,
+            "--time-zone",
+            &timezone,
+            "report"
+        );
     }
 
     if report.status.success() {
@@ -109,42 +131,47 @@ fn invoke_heliocron_report(date: &str,
     }
     sunrise_sunset
 }
+*/
 
-fn main() -> io::Result<()>
-{
+fn main() -> io::Result<()> {
     let opt = Opt::from_args();
     if opt.verbose > 2 {
         println!("{:#?}", opt);
+        println!("time_offset {}", opt.time_offset);
     }
 
     let (date, longitude, latitude, timezone): (String, String, String, String);
-    match opt.date {
-        None    => date = String::from("2022-01-24"),
-        Some(d) => date = d,
-    }
-    match opt.latitude {
-        None    => latitude = String::from("40.7128N"),
-        Some(o) => latitude = o,
-    }
-    match opt.longitude {
-        None    => longitude = String::from("74.0060W"),
-        Some(t) => longitude = t,
-    }
-    match opt.time_zone {
-        None     => timezone = String::from("-05:00"),
-        Some(tz) => timezone = tz,
-    }
 
-    let (sunrise, sunset) = invoke_heliocron_report(&date, &timezone, &latitude, &longitude,
-                                                    opt.verbose > 0);
+    let config = config::Config {
+        coordinates: structs::Coordinates {
+            latitude: structs::Latitude { value: opt.latitude },
+            longitude: structs::Longitude { value: opt.longitude },
+        },
+        date: Local::today()
+        .and_hms(12, 0, 0)
+        .with_timezone(&FixedOffset::from_offset(Local::today().offset())),
+        action: config::Action::Report,
+    };
+
+    let solar_calculations = calc::SolarCalculations::new(config.date, config.coordinates);
+    let calc = |op: &str|
+    {
+        solar_calculations.calculate_event_time(enums::Event::new(op, None).unwrap())
+    };
+    let sunrise = calc("sunrise");
+    let sunset = calc("sunset");
+
+    let just_time = |ev: &structs::EventTime| { ev.datetime.unwrap().time() };
+
     if opt.verbose > 0 {
-        println!("sunrise: {} sunset: {}", sunrise, sunset);
+        println!("sunrise: {} sunset: {}", just_time(&sunrise), just_time(&sunset));
     }
 
-    let sunrise_sunset_json = json!({ "day_start" : sunrise, "day_end" : sunset });
+    let sunrise_sunset_json = json!({ "day_start" : format!("{}", just_time(&sunrise)),
+                                            "day_end" : format!("{}", just_time(&sunset)) });
 
     match opt.out {
-        None        => println!("{:}", sunrise_sunset_json.to_string()),
+        None => println!("{:}", sunrise_sunset_json.to_string()),
         Some(oname) => {
             let file = OpenOptions::new()
                 .create(true)
@@ -163,24 +190,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_nyc_sunrise_sunset() { // NYC 40.7128° N, 74.0060° W
-        let (sunrise, sunset) = invoke_heliocron_report("2022-01-24",
-                                                        "-05:00",     // TZ offset of NYC: GMT-5
-                                                        "40.7128N",   // latitude of NYC
-                                                        "74.0060W",   // longitude of NYC
-                                                        false);       // be silent
+    fn test_nyc_sunrise_sunset() {
+        // NYC 40.7128° N, 74.0060° W
+        /*
+        let (sunrise, sunset) = invoke_heliocron_report(
+            "2022-01-24",
+            "-05:00",   // TZ offset of NYC: GMT-5
+            "40.7128N", // latitude of NYC
+            "74.0060W", // longitude of NYC
+            false,
+        ); // be silent
         assert_eq!(sunrise, "07:12:36");
-        assert_eq!(sunset,  "17:03:42");
+        assert_eq!(sunset, "17:03:42");
+        */
     }
 
     #[test]
-    fn test_ok_sunrise_sunset() { // Oakland, CA 37.8044° N, 122.2712° W
-        let (sunrise, sunset) = invoke_heliocron_report("2022-01-25",
-                                                        "-08:00",     // TZ offset of Oakland, CA: GMT-8
-                                                        "37.8044N",   // latitude of Oakland, CA
-                                                        "122.2712W",  // longitude of Oakland, CA
-                                                        false);       // be silent
+    fn test_ok_sunrise_sunset() {
+        // Oakland, CA 37.8044° N, 122.2712° W
+        /*
+        let (sunrise, sunset) = invoke_heliocron_report(
+            "2022-01-25",
+            "-08:00",    // TZ offset of Oakland, CA: GMT-8
+            "37.8044N",  // latitude of Oakland, CA
+            "122.2712W", // longitude of Oakland, CA
+            false,
+        ); // be silent
         assert_eq!(sunrise, "07:18:10");
-        assert_eq!(sunset,  "17:24:46");
+        assert_eq!(sunset, "17:24:46");
+        */
     }
 }
