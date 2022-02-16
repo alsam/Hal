@@ -1,0 +1,22 @@
+[package]
+name = "hal"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+structopt = "*"
+serde = "*"
+serde_json = "*"
+heliocron = "*"
+
+[package.metadata.deb]
+maintainer = "Alexander Samoilov <alexander.samoilov@gmail.com>"
+copyright = "2022, Alexander Samoilov <alexander.samoilov@gmail.com>"
+license-file = ["LICENSE", "4"]
+depends = "$auto"
+section = "utility"
+priority = "optional"
+assets = [
+    ["target/release/hal", "usr/local/bin/", "755"],
+    ["README.md", "usr/local/share/doc/hal/README", "644"],
+]
